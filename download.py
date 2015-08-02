@@ -4,7 +4,7 @@ import os
 """
 @TODO:
     1. check connection status and retry
-    2. 
+    2. synchnized visit not supported yet
 """
 conn = pymongo.MongoClient('mongodb://localhost')
 db   = conn.pickkick
@@ -95,10 +95,17 @@ class ImageManage(object):
     def __init__(self, db):
         self._images = db.images
         
+    """
+    add one set of image information into db.images collection
+    check duplicate before insert is implemented
+        1. duplicate according to conflict of field_name  or  field_uri
+        2. remove duplicate before insert
+    insert dict size must be basicInfoSize + 2
+    """
     def add_one_image(self,imageInfoDict):
         if self._images is None:
             print("Error: Unable to get images collection")
-            return "False"
+            return False
 
         if not isinstance(imageInfoDict,dict):
             return False
@@ -114,18 +121,61 @@ class ImageManage(object):
             self._images.insert_one(imageInfoDict)
         except Exception as e:
             print("Error: Insert Image info error.",type(e),e)
-            return "False"
-        return 'True'
+            return False
+        return True
 
-    def __getUri(img_name):
+    def __getUri(self,img_name):
         if not isinstance(img_name,str):
             return None
 
         query = {ImageManage.field_name:img_name}
         project = {ImageManage.field_uri:1}
 
+        try:
+            doc = self._images.find_one(query,project)
+        except Exception as e:
+            print("Error: Get uri from db by img name error.")
+            return None
 
-        
+        return doc.get(ImageManage.field_uri)
+
+
+    """
+    synchronize image items with client
+    @param: a set of image names that the client has
+    @return: tuple of bool and set of names (client has but db does not)
+    """
+    def sync(self,img_name_set):
+        if not isinstance(img_name_set,set):
+            return False,None
+            
+        try:
+            docs = self._images.find({},{'_id':0,ImageManage.field_name:1})
+
+        except Exception as e:
+            print("Error: retrieve img names error when sync.",type(e),e)
+            return False,None
+
+        db_img_name_set = set()
+        for doc in docs:
+            db_img_name_set.add(doc.get(ImageManage.field_name))
+
+        """delete the documents with field_name that db has but android client does not"""
+        unwanted_to_del_set = db_img_name_set - img_name_set
+
+        for name_to_del in unwanted_to_del_set:
+            del_query = {ImageManage.field_name:name_to_del}
+            try:
+                self._images.remove(del_query)
+            except Exception as e:
+                print("Error: remove error in sync", type(e),e)
+                return False,None
+
+        missed_to_inform_set = img_name_set - db_img_name_set
+
+        return True,missed_to_inform_set    
+
+
        
 @get('/download/<filename:path>')
 def do_download(filename):
