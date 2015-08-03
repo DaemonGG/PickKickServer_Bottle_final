@@ -5,6 +5,7 @@ import os
 @TODO:
     1. check connection status and retry
     2. synchnized visit not supported yet
+    3. check owner of pic is one existent email in users collection
 """
 conn = pymongo.MongoClient('mongodb://localhost')
 db   = conn.pickkick
@@ -84,8 +85,9 @@ class ImageManage(object):
     field_latitude  = "latitude"
     field_country   = "country"
     field_city      = "city"
-    field_time      = "time"    
-    basicInfoSize   = 5
+    field_time      = "time" 
+    field_owner     = "owner"   
+    basicInfoSize   = 6
 
     field_uri       = "uri"
     field_name      = "imgname"
@@ -117,7 +119,7 @@ class ImageManage(object):
         
         try:
             """remove the conflict items first if exist"""
-            self._images.remove(checkDupQuery)
+            self._images.delete_many(checkDupQuery)
             self._images.insert_one(imageInfoDict)
         except Exception as e:
             print("Error: Insert Image info error.",type(e),e)
@@ -145,12 +147,13 @@ class ImageManage(object):
     @param: a set of image names that the client has
     @return: tuple of bool and set of names (client has but db does not)
     """
-    def sync(self,img_name_set):
+    def sync(self,img_name_set,owner_name):
         if not isinstance(img_name_set,set):
             return False,None
-            
+
+        query = {ImageManage.field_owner:owner_name} #get only the image names of this owner
         try:
-            docs = self._images.find({},{'_id':0,ImageManage.field_name:1})
+            docs = self._images.find(query,{'_id':0,ImageManage.field_name:1})
 
         except Exception as e:
             print("Error: retrieve img names error when sync.",type(e),e)
@@ -166,7 +169,7 @@ class ImageManage(object):
         for name_to_del in unwanted_to_del_set:
             del_query = {ImageManage.field_name:name_to_del}
             try:
-                self._images.remove(del_query)
+                self._images.delete_one(del_query)
             except Exception as e:
                 print("Error: remove error in sync", type(e),e)
                 return False,None
@@ -175,6 +178,32 @@ class ImageManage(object):
 
         return True,missed_to_inform_set    
 
+@post('/sync')
+def do_sync():
+    name_list = request.forms.get('sync')
+    owner     = request.forms.get('owner')
+    if name_list is None or owner is None or owner == "" :
+        return "false"
+
+    names     = name_list.split(';')
+
+    image_name_set = set()
+    for name in names:
+        image_name_set.add(name)
+
+    imgManager = ImageManage(db)
+    no_err,unnecessary_set = imgManager.sync(image_name_set,owner)
+
+    if not no_err:
+        return "false"
+
+    if unnecessary_set is None:
+        return "true"
+    res = ''
+    for name in unnecessary_set:
+        res = "{0};{1}".format(res,name)
+
+    return res
 
        
 @get('/download/<filename:path>')
@@ -251,14 +280,22 @@ def getImageInfoDic(request):
     if bool(latitude):
         imageInfo[ImageManage.field_latitude] = latitude
 
+    owner     = request.forms.get(ImageManage.field_owner)
+    if bool(owner):
+        imageInfo[ImageManage.field_owner] = owner
     return imageInfo
 
-@get('/register')
+@post('/register')
 def do_register():
     query = request.query
     username = query.get(UserManage.field_username)
     email    = query.get(UserManage.field_email)
     passwd   = query.get(UserManage.field_passwd)
+
+    if username is None or username=="" or email is None or email.find('@')==-1 or passwd is None or passwd=="":
+        return "false"
+
+    print(username,email,passwd)
     hr = UserManage(db)
     valid = hr.add_one_user(username,email,passwd)
 
@@ -267,7 +304,7 @@ def do_register():
     else:
         return 'false'
 
-@get('/login')
+@post('/login')
 def do_login():
     query = request.query
     if query is None:
@@ -302,6 +339,9 @@ def test_output():
     print(data)
     return 'OK'
 
+@get('/')
+def index_page():
+    return "<h>You are connected</h>"
 
 if __name__=='__main__':
     # manager = ImageManage(db)
