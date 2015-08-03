@@ -170,6 +170,7 @@ class ImageManage(object):
             del_query = {ImageManage.field_name:name_to_del}
             try:
                 self._images.delete_one(del_query)
+                Util.delete_one_file(ImageManage.save_root,name_to_del)
             except Exception as e:
                 print("Error: remove error in sync", type(e),e)
                 return False,None
@@ -177,6 +178,25 @@ class ImageManage(object):
         missed_to_inform_set = img_name_set - db_img_name_set
 
         return True,missed_to_inform_set    
+
+class Util(object):
+    """docstring for Util"""
+    def __init__(self):
+        pass
+    
+    @staticmethod
+    def delete_one_file(root,filename,verbose=True):
+        if not isinstance(root,str) or not isinstance(filename,str):
+            return False
+        
+        path = root+filename
+
+        try:
+            os.remove(path)
+        except Exception as e:
+            if verbose:
+                print(type(e),e)
+        
 
 @post('/sync')
 def do_sync():
@@ -236,10 +256,7 @@ def do_upload():
     save_path = ImageManage.save_root+upload.filename
 
     """ remove old file if it's there """
-    try:
-        os.remove(save_path)
-    except Exception as e:
-        pass
+    Util.delete_one_file(ImageManage.save_root,upload.filename,False)
 
     upload.save(save_path)
 
