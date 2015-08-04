@@ -2,6 +2,7 @@ from bottle import route,get,post,run,static_file,request,response,BaseRequest
 import pymongo
 import os
 import operator
+import functools
 from PIL import Image
 """
 @TODO:
@@ -370,7 +371,7 @@ def histogram_equalize(h):
     for b in range(0, len(h), 256):
 
         # step size
-        step = reduce(operator.add, h[b:b+256]) / 255
+        step = functools.reduce(operator.add, h[b:b+256]) / 255
 
         # create equalization lookup table
         n = 0
@@ -380,17 +381,26 @@ def histogram_equalize(h):
 
     return lut
 
-#@get('/equalize/<filename:path>')
-def do_equalize(finename):
+@get('/equalize/<filename:path>')
+def do_equalize(imgname):
+    path = ImageManage.save_root + imgname
+    name,ext = os.path.splitext(imgname)
     try:
-        im = Image.open(ImageManage.save_root + filename)
+        im = Image.open(path)
     except Exception as e:
         print(type(e),e)
         return
 
-    lut = histogram_equalize(im)
+    lut = histogram_equalize(im.histogram())
     im = im.point(lut)
-    im.show()
+    
+    newname = name+'_eql'+ext
+    path = ImageManage.save_root+ newname
+    im.save(path)
+
+    response = static_file(newname,root = './property/')
+    response.set_header('Content-Disposition','attachment; filename=\"'+newname+'\"')
+    return response
 
 @route('/testpost',method='post')
 def test_output():
